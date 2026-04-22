@@ -188,9 +188,17 @@ class CacheConfig:
 @dataclass
 class OSMConfig:
     overpass_url: str = "https://overpass-api.de/api/interpreter"
+    overpass_urls: list = field(default_factory=lambda: [
+        "https://overpass-api.de/api/interpreter",
+        "https://z.overpass-api.de/api/interpreter",
+        "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+        "https://overpass.kumi.systems/api/interpreter",
+    ])
     nominatim_url: str = "https://nominatim.openstreetmap.org/search"
-    timeout: int = 30
+    timeout: int = 120
     user_agent: str = "MapToPoster/0.1.0"
+    max_retries: int = 3
+    retry_delay: float = 5.0
 
 
 @dataclass

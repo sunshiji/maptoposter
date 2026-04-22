@@ -1,0 +1,23 @@
+{
+  "key": "5f3d5a4de801ccf0",
+  "data": {
+    "name": "纽约;紐約",
+    "display_name": "纽约;紐約, 纽约州;紐約州, 美国;美國",
+    "latitude": 40.7127281,
+    "longitude": -74.0060152,
+    "bounding_box": [
+      40.476578,
+      40.91763,
+      -74.258843,
+      -73.700233
+    ],
+    "country": "美国;美國",
+    "state": "纽约州;紐約州",
+    "city": "纽约;紐約",
+    "osm_type": "relation",
+    "osm_id": 175905
+  },
+  "cache_type": "geocode",
+  "created_at": 1776867190.2473037,
+  "ttl_seconds": 2592000
+}

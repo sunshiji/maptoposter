@@ -1,4 +1,5 @@
 import logging
+import time
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple
 import requests
@@ -8,6 +9,8 @@ from ..cache import CacheManager, CacheType, cache_key
 from ..config.settings import RoadType, ROAD_TYPE_PRIORITY
 
 logger = logging.getLogger(__name__)
+
+MAX_BBOX_SIZE = 1.0
 
 
 @dataclass
@@ -67,14 +70,20 @@ class OSMFetcher:
     def __init__(
         self,
         overpass_url: str = "https://overpass-api.de/api/interpreter",
+        overpass_urls: Optional[List[str]] = None,
         user_agent: str = "MapToPoster/0.1.0",
-        timeout: int = 60,
+        timeout: int = 120,
         cache_manager: Optional[CacheManager] = None,
+        max_retries: int = 3,
+        retry_delay: float = 5.0,
     ):
         self.overpass_url = overpass_url
+        self.overpass_urls = overpass_urls or [overpass_url]
         self.user_agent = user_agent
         self.timeout = timeout
         self.cache_manager = cache_manager
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
         self._session: Optional[requests.Session] = None
     
     def _get_session(self) -> requests.Session:
@@ -82,6 +91,34 @@ class OSMFetcher:
             self._session = requests.Session()
             self._session.headers.update({"User-Agent": self.user_agent})
         return self._session
+    
+    def _check_bbox_size(
+        self,
+        bbox: Tuple[float, float, float, float],
+    ) -> Tuple[float, float, float, float]:
+        min_lat, max_lat, min_lon, max_lon = bbox
+        lat_range = max_lat - min_lat
+        lon_range = max_lon - min_lon
+        
+        center_lat = (min_lat + max_lat) / 2
+        center_lon = (min_lon + max_lon) / 2
+        
+        if lat_range > MAX_BBOX_SIZE or lon_range > MAX_BBOX_SIZE:
+            logger.warning(
+                f"Bounding box too large ({lat_range:.2f}° x {lon_range:.2f}°), "
+                f"limiting to {MAX_BBOX_SIZE}° for faster query"
+            )
+            
+            half_size = MAX_BBOX_SIZE / 2
+            new_bbox = (
+                center_lat - half_size,
+                center_lat + half_size,
+                center_lon - half_size,
+                center_lon + half_size,
+            )
+            return new_bbox
+        
+        return bbox
     
     def _build_overpass_query(
         self,
@@ -213,6 +250,12 @@ out body;
         self,
         bbox: Tuple[float, float, float, float],
     ) -> OSMData:
+        original_bbox = bbox
+        bbox = self._check_bbox_size(bbox)
+        
+        if bbox != original_bbox:
+            logger.info(f"Adjusted bbox from {original_bbox} to {bbox}")
+        
         logger.info(f"Fetching OSM data for bbox: {bbox}")
         
         cache_key_val = cache_key(bbox=bbox)
@@ -224,31 +267,53 @@ out body;
         
         query = self._build_overpass_query(bbox)
         
-        try:
-            session = self._get_session()
-            response = session.post(
-                self.overpass_url,
-                data={"data": query},
-                timeout=self.timeout,
-            )
-            response.raise_for_status()
+        last_exception = None
+        
+        for url_index, overpass_url in enumerate(self.overpass_urls):
+            for attempt in range(self.max_retries):
+                try:
+                    logger.info(
+                        f"Querying Overpass API (server {url_index + 1}/{len(self.overpass_urls)}, "
+                        f"attempt {attempt + 1}/{self.max_retries}): {overpass_url}"
+                    )
+                    
+                    session = self._get_session()
+                    response = session.post(
+                        overpass_url,
+                        data={"data": query},
+                        timeout=self.timeout,
+                    )
+                    response.raise_for_status()
+                    
+                    raw_data = response.json()
+                    osm_data = self._parse_osm_data(raw_data, bbox)
+                    
+                    if self.cache_manager and osm_data.all_features > 0:
+                        self.cache_manager.set(
+                            cache_key_val,
+                            self._osm_data_to_dict(osm_data),
+                            CacheType.OSM_DATA,
+                        )
+                    
+                    logger.info(f"Successfully fetched {osm_data.all_features} features")
+                    return osm_data
+                    
+                except requests.exceptions.RequestException as e:
+                    last_exception = e
+                    logger.warning(
+                        f"Attempt {attempt + 1}/{self.max_retries} failed for {overpass_url}: {e}"
+                    )
+                    
+                    if attempt < self.max_retries - 1:
+                        delay = self.retry_delay * (attempt + 1)
+                        logger.info(f"Retrying in {delay} seconds...")
+                        time.sleep(delay)
             
-            raw_data = response.json()
-            osm_data = self._parse_osm_data(raw_data, bbox)
-            
-            if self.cache_manager and osm_data.all_features > 0:
-                self.cache_manager.set(
-                    cache_key_val,
-                    self._osm_data_to_dict(osm_data),
-                    CacheType.OSM_DATA,
-                )
-            
-            logger.info(f"Fetched {osm_data.all_features} features")
-            return osm_data
-            
-        except requests.exceptions.RequestException as e:
-            logger.error(f"OSM fetch error: {e}")
-            raise
+            if url_index < len(self.overpass_urls) - 1:
+                logger.info(f"Trying next Overpass API server...")
+        
+        logger.error(f"All Overpass API servers failed after {self.max_retries} attempts each")
+        raise last_exception or Exception("Failed to fetch OSM data")
     
     def _parse_osm_data(
         self,

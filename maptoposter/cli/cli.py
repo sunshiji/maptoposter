@@ -258,14 +258,18 @@ def generate_poster(
         sys.exit(1)
     
     click.echo(f"[INFO] {_i18n('fetching_data')}")
+    click.echo(f"   提示: 对于大城市或偏远地区，数据获取可能需要较长时间，请耐心等待...")
     
     bbox = expand_bbox(location_result.bounding_box, bbox_ratio)
     
     osm_fetcher = OSMFetcher(
         overpass_url=_cfg.osm.overpass_url,
+        overpass_urls=_cfg.osm.overpass_urls,
         user_agent=_cfg.osm.user_agent,
         timeout=_cfg.osm.timeout,
         cache_manager=_cache,
+        max_retries=_cfg.osm.max_retries,
+        retry_delay=_cfg.osm.retry_delay,
     )
     
     try:
@@ -312,12 +316,17 @@ def generate_poster(
         
         if output:
             output_path = Path(output)
+            output_path = output_path.resolve()
         else:
             safe_name = re.sub(r'[^\w\-_.]', '_', location_result.name)
             output_filename = f"{safe_name}_{theme}.{format}"
             output_path = _cfg.output_path / output_filename
+            output_path = output_path.resolve()
         
+        output_dir = output_path.parent
         click.echo(f"[INFO] {_i18n('saving_file')}")
+        click.echo(f"   输出目录: {output_dir}")
+        click.echo(f"   文件名: {output_path.name}")
         
         output_format = OutputFormat(format)
         poster_generator.save(
@@ -328,7 +337,13 @@ def generate_poster(
         )
         
         click.echo(f"[OK] {_i18n('success')}")
-        click.echo(f"   已保存到: {output_path.absolute()}")
+        click.echo(f"")
+        click.echo(f"   [路径] {output_path}")
+        click.echo(f"   [大小] {output_path.stat().st_size / 1024:.1f} KB")
+        click.echo(f"   [格式] {format.upper()}")
+        click.echo(f"   [尺寸] {width} x {height} 像素 @ {dpi} DPI")
+        click.echo(f"")
+        click.echo(f"   提示: 可以使用 --output 参数自定义输出路径")
         
         return poster
         
