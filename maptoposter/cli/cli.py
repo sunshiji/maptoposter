@@ -152,6 +152,10 @@ def cli(ctx, language, config_file):
               help='边界框扩展比例')
 @click.option('--title-position', type=click.Choice(['top', 'bottom']),
               default='bottom', help='标题位置')
+@click.option('--no-labels', is_flag=True, help='不显示地名标签')
+@click.option('--no-city-labels', is_flag=True, help='不显示城市标签')
+@click.option('--no-district-labels', is_flag=True, help='不显示区县标签')
+@click.option('--max-labels', type=int, default=30, help='最大标签数量')
 @click.pass_context
 def generate_poster(
     ctx,
@@ -170,6 +174,10 @@ def generate_poster(
     subtitle,
     bbox_ratio,
     title_position,
+    no_labels,
+    no_city_labels,
+    no_district_labels,
+    max_labels,
 ):
     """
     生成地图海报
@@ -279,7 +287,7 @@ def generate_poster(
             click.echo(f"[WARN]  {_i18n('no_map_data')}")
             click.echo("   尝试使用更大的 --bbox-ratio 值")
         
-        click.echo(f"   获取到 {osm_data.roads} 条道路, {len(osm_data.water_bodies)} 个水体, {len(osm_data.parks)} 个公园, {len(osm_data.buildings)} 个建筑")
+        click.echo(f"   获取到 {osm_data.roads} 条道路, {len(osm_data.water_bodies)} 个水体, {len(osm_data.parks)} 个公园, {len(osm_data.buildings)} 个建筑, {len(osm_data.places)} 个地名")
         
     except Exception as e:
         click.echo(f"[ERROR] {_i18n('error')}: {e}")
@@ -288,6 +296,15 @@ def generate_poster(
         osm_fetcher.close()
     
     click.echo(f"[INFO] {_i18n('generating_poster')}")
+    
+    from ..renderer.renderer import LabelConfig
+    
+    labels_config = LabelConfig(
+        show_labels=not no_labels,
+        show_city=not no_city_labels,
+        show_district=not no_district_labels,
+        max_labels=max_labels,
+    )
     
     poster_config = PosterConfig(
         width=width,
@@ -298,6 +315,7 @@ def generate_poster(
         show_border=not no_border,
         gradient_overlay=not no_gradient,
         title_position=title_position,
+        labels=labels_config,
     )
     
     poster_generator = PosterGenerator(

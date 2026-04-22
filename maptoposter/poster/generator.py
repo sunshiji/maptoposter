@@ -1,5 +1,5 @@
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Optional, Tuple, List
 from pathlib import Path
 
@@ -8,7 +8,7 @@ from PIL import Image, ImageDraw, ImageFont
 from ..config.settings import Theme, OutputFormat
 from ..geo.osm_fetcher import OSMData
 from ..geo.geocoder import LocationResult
-from ..renderer.renderer import MapRenderer, RenderConfig, hex_to_rgba
+from ..renderer.renderer import MapRenderer, RenderConfig, hex_to_rgba, LabelConfig
 from ..renderer.svg_renderer import SVGRenderer
 from ..renderer.pdf_renderer import PDFRenderer
 from ..i18n.i18n import I18nManager
@@ -38,6 +38,7 @@ class PosterConfig:
     gradient_overlay: bool = True
     decorative_corners: bool = True
     map_ratio: float = 0.75
+    labels: LabelConfig = field(default_factory=LabelConfig)
 
 
 class PosterGenerator:
@@ -75,6 +76,7 @@ class PosterGenerator:
             height=map_height,
             dpi=self.config.dpi,
             padding=0,
+            labels=self.config.labels,
         )
         
         renderer = MapRenderer(self.theme, render_config)

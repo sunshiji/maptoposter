@@ -2,6 +2,7 @@ import logging
 import time
 from dataclasses import dataclass, field
 from typing import List, Dict, Any, Optional, Tuple
+from enum import Enum
 import requests
 import json
 
@@ -11,6 +12,84 @@ from ..config.settings import RoadType, ROAD_TYPE_PRIORITY
 logger = logging.getLogger(__name__)
 
 MAX_BBOX_SIZE = 1.0
+
+
+class PlaceType(Enum):
+    COUNTRY = "country"
+    STATE = "state"
+    REGION = "region"
+    COUNTY = "county"
+    DISTRICT = "district"
+    CITY = "city"
+    TOWN = "town"
+    MUNICIPALITY = "municipality"
+    VILLAGE = "village"
+    SUBURB = "suburb"
+    QUARTER = "quarter"
+    NEIGHBOURHOOD = "neighbourhood"
+    HAMLET = "hamlet"
+    LOCALITY = "locality"
+
+
+PLACE_TYPE_PRIORITY = {
+    PlaceType.COUNTRY: 20,
+    PlaceType.STATE: 18,
+    PlaceType.REGION: 16,
+    PlaceType.COUNTY: 14,
+    PlaceType.DISTRICT: 13,
+    PlaceType.CITY: 12,
+    PlaceType.TOWN: 10,
+    PlaceType.MUNICIPALITY: 9,
+    PlaceType.VILLAGE: 8,
+    PlaceType.SUBURB: 6,
+    PlaceType.QUARTER: 5,
+    PlaceType.NEIGHBOURHOOD: 4,
+    PlaceType.HAMLET: 3,
+    PlaceType.LOCALITY: 2,
+}
+
+
+@dataclass
+class Place:
+    id: int
+    name: Optional[str]
+    name_en: Optional[str]
+    name_local: Optional[str]
+    place_type: PlaceType
+    latitude: float
+    longitude: float
+    population: Optional[int] = None
+    admin_level: Optional[int] = None
+    tags: Dict[str, str] = field(default_factory=dict)
+    
+    @property
+    def priority(self) -> int:
+        pop_priority = 0
+        if self.population:
+            if self.population > 1000000:
+                pop_priority = 100
+            elif self.population > 500000:
+                pop_priority = 80
+            elif self.population > 100000:
+                pop_priority = 60
+            elif self.population > 50000:
+                pop_priority = 40
+            elif self.population > 10000:
+                pop_priority = 20
+        
+        type_priority = PLACE_TYPE_PRIORITY.get(self.place_type, 0)
+        
+        return type_priority + pop_priority
+    
+    @property
+    def display_name(self) -> str:
+        if self.name:
+            return self.name
+        if self.name_local:
+            return self.name_local
+        if self.name_en:
+            return self.name_en
+        return ""
 
 
 @dataclass
@@ -59,11 +138,12 @@ class OSMData:
     water_bodies: List[WaterBody] = field(default_factory=list)
     parks: List[Park] = field(default_factory=list)
     buildings: List[Building] = field(default_factory=list)
+    places: List[Place] = field(default_factory=list)
     bounding_box: Tuple[float, float, float, float] = (0, 0, 0, 0)
     
     @property
     def all_features(self) -> int:
-        return len(self.roads) + len(self.water_bodies) + len(self.parks) + len(self.buildings)
+        return len(self.roads) + len(self.water_bodies) + len(self.parks) + len(self.buildings) + len(self.places)
 
 
 class OSMFetcher:
@@ -148,6 +228,9 @@ class OSMFetcher:
   
   way["building"][building!="no"][building!="construction"]
     ({bbox_str});
+  
+  node["place"]({bbox_str});
+  node["place"]({bbox_str})->.place_nodes;
 );
 
 (._;>;);
@@ -198,6 +281,21 @@ out body;
                 }
                 for b in osm_data.buildings
             ],
+            "places": [
+                {
+                    "id": p.id,
+                    "name": p.name,
+                    "name_en": p.name_en,
+                    "name_local": p.name_local,
+                    "place_type": p.place_type.value,
+                    "latitude": p.latitude,
+                    "longitude": p.longitude,
+                    "population": p.population,
+                    "admin_level": p.admin_level,
+                    "tags": p.tags,
+                }
+                for p in osm_data.places
+            ],
         }
     
     def _dict_to_osm_data(self, data: Dict[str, Any]) -> OSMData:
@@ -243,6 +341,21 @@ out body;
                 tags=building_data.get("tags", {}),
             )
             osm_data.buildings.append(building)
+        
+        for place_data in data.get("places", []):
+            place = Place(
+                id=place_data["id"],
+                name=place_data.get("name"),
+                name_en=place_data.get("name_en"),
+                name_local=place_data.get("name_local"),
+                place_type=PlaceType(place_data["place_type"]),
+                latitude=place_data["latitude"],
+                longitude=place_data["longitude"],
+                population=place_data.get("population"),
+                admin_level=place_data.get("admin_level"),
+                tags=place_data.get("tags", {}),
+            )
+            osm_data.places.append(place)
         
         return osm_data
     
@@ -323,6 +436,7 @@ out body;
         nodes: Dict[int, Tuple[float, float]] = {}
         ways: Dict[int, Dict[str, Any]] = {}
         relations: Dict[int, Dict[str, Any]] = {}
+        place_nodes: List[Dict[str, Any]] = []
         
         for element in raw_data.get("elements", []):
             element_type = element.get("type")
@@ -330,6 +444,9 @@ out body;
             
             if element_type == "node":
                 nodes[element_id] = (element.get("lat"), element.get("lon"))
+                tags = element.get("tags", {})
+                if "place" in tags:
+                    place_nodes.append(element)
             elif element_type == "way":
                 ways[element_id] = element
             elif element_type == "relation":
@@ -422,7 +539,57 @@ out body;
                 )
                 osm_data.buildings.append(building)
         
+        for place_node in place_nodes:
+            tags = place_node.get("tags", {})
+            place_type_str = tags.get("place")
+            
+            if not place_type_str:
+                continue
+            
+            try:
+                place_type = PlaceType(place_type_str)
+            except ValueError:
+                try:
+                    place_type = PlaceType(place_type_str.lower())
+                except ValueError:
+                    place_type = PlaceType.LOCALITY
+            
+            population = None
+            pop_str = tags.get("population")
+            if pop_str:
+                try:
+                    population = int(pop_str.replace(",", ""))
+                except ValueError:
+                    pass
+            
+            admin_level = None
+            admin_str = tags.get("admin_level")
+            if admin_str:
+                try:
+                    admin_level = int(admin_str)
+                except ValueError:
+                    pass
+            
+            name = tags.get("name")
+            name_en = tags.get("name:en")
+            name_local = tags.get("name:zh") or tags.get("name:ja") or tags.get("name:ko")
+            
+            place = Place(
+                id=place_node.get("id"),
+                name=name,
+                name_en=name_en,
+                name_local=name_local,
+                place_type=place_type,
+                latitude=place_node.get("lat"),
+                longitude=place_node.get("lon"),
+                population=population,
+                admin_level=admin_level,
+                tags=tags,
+            )
+            osm_data.places.append(place)
+        
         osm_data.roads.sort(key=lambda r: r.priority)
+        osm_data.places.sort(key=lambda p: p.priority, reverse=True)
         
         return osm_data
     

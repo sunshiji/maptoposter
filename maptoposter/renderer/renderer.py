@@ -1,14 +1,30 @@
 import logging
 from dataclasses import dataclass
-from typing import Tuple, List, Any, Optional
+from typing import Tuple, List, Any, Optional, Set
 from pathlib import Path
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 from ..config.settings import Theme, ThemeColors, RoadType, ROAD_TYPE_PRIORITY
-from ..geo.osm_fetcher import OSMData, Road, WaterBody, Park, Building
+from ..geo.osm_fetcher import OSMData, Road, WaterBody, Park, Building, Place, PlaceType, PLACE_TYPE_PRIORITY
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class LabelConfig:
+    show_labels: bool = True
+    show_city: bool = True
+    show_district: bool = True
+    show_town: bool = True
+    show_village: bool = True
+    show_suburb: bool = True
+    max_labels: int = 30
+    min_font_size: int = 12
+    max_font_size: int = 48
+    label_outline: bool = True
+    label_outline_width: int = 2
+    avoid_overlap: bool = True
 
 
 @dataclass
@@ -22,6 +38,7 @@ class RenderConfig:
     show_parks: bool = True
     show_roads: bool = True
     padding: int = 0
+    labels: LabelConfig = None
     
     def __post_init__(self):
         if self.road_widths is None:
@@ -39,6 +56,8 @@ class RenderConfig:
                 RoadType.PATH: 1,
                 RoadType.UNCLASSIFIED: 2,
             }
+        if self.labels is None:
+            self.labels = LabelConfig()
 
 
 class CoordinateTransformer:
@@ -146,7 +165,190 @@ class MapRenderer:
         if self.render_config.show_roads:
             self._render_roads(draw, osm_data.roads, transformer)
         
+        if self.render_config.labels and self.render_config.labels.show_labels:
+            self._render_labels(draw, osm_data.places, transformer, width, height)
+        
         return image
+    
+    def _get_font(self, size: int, bold: bool = False) -> ImageFont.ImageFont:
+        try:
+            if bold:
+                return ImageFont.truetype("arialbd.ttf", size)
+            return ImageFont.truetype("arial.ttf", size)
+        except:
+            try:
+                if bold:
+                    return ImageFont.truetype("DejaVuSans-Bold.ttf", size)
+                return ImageFont.truetype("DejaVuSans.ttf", size)
+            except:
+                return ImageFont.load_default()
+    
+    def _filter_places(self, places: List[Place]) -> List[Place]:
+        labels_config = self.render_config.labels
+        filtered = []
+        
+        for place in places:
+            if not place.display_name:
+                continue
+            
+            place_type = place.place_type
+            
+            if place_type == PlaceType.CITY and not labels_config.show_city:
+                continue
+            if place_type == PlaceType.DISTRICT and not labels_config.show_district:
+                continue
+            if place_type == PlaceType.TOWN and not labels_config.show_town:
+                continue
+            if place_type == PlaceType.MUNICIPALITY and not labels_config.show_town:
+                continue
+            if place_type == PlaceType.VILLAGE and not labels_config.show_village:
+                continue
+            if place_type == PlaceType.SUBURB and not labels_config.show_suburb:
+                continue
+            if place_type == PlaceType.QUARTER and not labels_config.show_suburb:
+                continue
+            if place_type == PlaceType.NEIGHBOURHOOD and not labels_config.show_suburb:
+                continue
+            
+            filtered.append(place)
+        
+        filtered.sort(key=lambda p: p.priority, reverse=True)
+        
+        return filtered[:labels_config.max_labels]
+    
+    def _get_font_size_for_place(self, place: Place, base_size: int = 24) -> int:
+        labels_config = self.render_config.labels
+        priority = place.priority
+        place_type = place.place_type
+        
+        if place_type == PlaceType.CITY:
+            size = 36
+        elif place_type == PlaceType.DISTRICT:
+            size = 28
+        elif place_type in [PlaceType.TOWN, PlaceType.MUNICIPALITY]:
+            size = 22
+        elif place_type == PlaceType.VILLAGE:
+            size = 18
+        else:
+            size = 16
+        
+        if place.population:
+            if place.population > 1000000:
+                size += 12
+            elif place.population > 500000:
+                size += 8
+            elif place.population > 100000:
+                size += 4
+            elif place.population > 50000:
+                size += 2
+        
+        size = max(labels_config.min_font_size, min(labels_config.max_font_size, size))
+        
+        return size
+    
+    def _check_overlap(
+        self,
+        bbox: Tuple[float, float, float, float],
+        occupied: List[Tuple[float, float, float, float]],
+    ) -> bool:
+        x1, y1, x2, y2 = bbox
+        
+        for (ox1, oy1, ox2, oy2) in occupied:
+            if not (x2 < ox1 or x1 > ox2 or y2 < oy1 or y1 > oy2):
+                return True
+        
+        return False
+    
+    def _render_labels(
+        self,
+        draw: ImageDraw.ImageDraw,
+        places: List[Place],
+        transformer: CoordinateTransformer,
+        canvas_width: int,
+        canvas_height: int,
+    ):
+        labels_config = self.render_config.labels
+        
+        if not places:
+            return
+        
+        filtered_places = self._filter_places(places)
+        
+        if not filtered_places:
+            return
+        
+        occupied_areas: List[Tuple[float, float, float, float]] = []
+        
+        text_color = self.theme.colors.primary
+        outline_color = self.theme.colors.background
+        
+        for place in filtered_places:
+            x, y = transformer.transform(place.latitude, place.longitude)
+            
+            if x < 0 or x > canvas_width or y < 0 or y > canvas_height:
+                continue
+            
+            font_size = self._get_font_size_for_place(place)
+            font = self._get_font(font_size, bold=True)
+            
+            text = place.display_name
+            
+            bbox = draw.textbbox((x, y), text, font=font, anchor="mm")
+            text_width = bbox[2] - bbox[0]
+            text_height = bbox[3] - bbox[1]
+            
+            padding = 10
+            label_bbox = (
+                x - text_width / 2 - padding,
+                y - text_height / 2 - padding,
+                x + text_width / 2 + padding,
+                y + text_height / 2 + padding,
+            )
+            
+            if labels_config.avoid_overlap and self._check_overlap(label_bbox, occupied_areas):
+                offset_y = 0
+                found = False
+                for offset in [20, 40, 60, 80, -20, -40, -60, -80]:
+                    test_bbox = (
+                        label_bbox[0],
+                        label_bbox[1] + offset,
+                        label_bbox[2],
+                        label_bbox[3] + offset,
+                    )
+                    if not self._check_overlap(test_bbox, occupied_areas):
+                        offset_y = offset
+                        found = True
+                        break
+                
+                if not found:
+                    continue
+                
+                y += offset_y
+            
+            occupied_areas.append(label_bbox)
+            
+            if labels_config.label_outline:
+                outline_width = labels_config.label_outline_width
+                for dx in range(-outline_width, outline_width + 1):
+                    for dy in range(-outline_width, outline_width + 1):
+                        if dx == 0 and dy == 0:
+                            continue
+                        if dx * dx + dy * dy <= outline_width * outline_width:
+                            draw.text(
+                                (x + dx, y + dy),
+                                text,
+                                font=font,
+                                fill=hex_to_rgba(outline_color),
+                                anchor="mm",
+                            )
+            
+            draw.text(
+                (x, y),
+                text,
+                font=font,
+                fill=hex_to_rgba(text_color),
+                anchor="mm",
+            )
     
     def _render_water_bodies(
         self,
