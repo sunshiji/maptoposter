@@ -188,8 +188,8 @@ def generate_poster(
     theme_manager = ThemeManager()
     selected_theme = theme_manager.get_theme(theme)
     
-    click.echo(f"🎨 MapToPoster v{__version__}")
-    click.echo(f"📍 {_i18n('searching_location')}")
+    click.echo(f"[INFO] MapToPoster v{__version__}")
+    click.echo(f"[INFO] {_i18n('searching_location')}")
     
     coords = parse_coordinates(location)
     location_result: Optional[LocationResult] = None
@@ -230,7 +230,7 @@ def generate_poster(
             )
             
             if not results:
-                click.echo(f"❌ {_i18n('location_not_found')}")
+                click.echo(f"[ERROR] {_i18n('location_not_found')}")
                 sys.exit(1)
             
             if len(results) == 1:
@@ -248,16 +248,16 @@ def generate_poster(
                     location_result = results[0]
         
     except Exception as e:
-        click.echo(f"❌ {_i18n('error')}: {e}")
+        click.echo(f"[ERROR] {_i18n('error')}: {e}")
         sys.exit(1)
     finally:
         geocoder.close()
     
     if not location_result:
-        click.echo(f"❌ {_i18n('location_not_found')}")
+        click.echo(f"[ERROR] {_i18n('location_not_found')}")
         sys.exit(1)
     
-    click.echo(f"📥 {_i18n('fetching_data')}")
+    click.echo(f"[INFO] {_i18n('fetching_data')}")
     
     bbox = expand_bbox(location_result.bounding_box, bbox_ratio)
     
@@ -272,18 +272,18 @@ def generate_poster(
         osm_data = osm_fetcher.fetch(bbox)
         
         if osm_data.all_features == 0:
-            click.echo(f"⚠️  {_i18n('no_map_data')}")
+            click.echo(f"[WARN]  {_i18n('no_map_data')}")
             click.echo("   尝试使用更大的 --bbox-ratio 值")
         
         click.echo(f"   获取到 {osm_data.roads} 条道路, {len(osm_data.water_bodies)} 个水体, {len(osm_data.parks)} 个公园, {len(osm_data.buildings)} 个建筑")
         
     except Exception as e:
-        click.echo(f"❌ {_i18n('error')}: {e}")
+        click.echo(f"[ERROR] {_i18n('error')}: {e}")
         sys.exit(1)
     finally:
         osm_fetcher.close()
     
-    click.echo(f"🖼️  {_i18n('generating_poster')}")
+    click.echo(f"[INFO] {_i18n('generating_poster')}")
     
     poster_config = PosterConfig(
         width=width,
@@ -317,7 +317,7 @@ def generate_poster(
             output_filename = f"{safe_name}_{theme}.{format}"
             output_path = _cfg.output_path / output_filename
         
-        click.echo(f"💾 {_i18n('saving_file')}")
+        click.echo(f"[INFO] {_i18n('saving_file')}")
         
         output_format = OutputFormat(format)
         poster_generator.save(
@@ -327,13 +327,13 @@ def generate_poster(
             osm_data=osm_data,
         )
         
-        click.echo(f"✅ {_i18n('success')}")
+        click.echo(f"[OK] {_i18n('success')}")
         click.echo(f"   已保存到: {output_path.absolute()}")
         
         return poster
         
     except Exception as e:
-        click.echo(f"❌ {_i18n('error')}: {e}")
+        click.echo(f"[ERROR] {_i18n('error')}: {e}")
         logger.exception("Poster generation error")
         sys.exit(1)
 
@@ -351,11 +351,11 @@ def list_themes(preview):
     theme_manager = ThemeManager()
     themes = theme_manager.list_themes()
     
-    click.echo("🎨 可用主题:")
+    click.echo("[INFO] 可用主题:")
     for theme_name in themes:
         if preview:
             theme_info = theme_manager.get_theme_info(theme_name)
-            click.echo(f"\n📌 {theme_name}")
+            click.echo(f"\n[INFO] {theme_name}")
             if theme_info:
                 click.echo(f"   描述: {theme_info.get('description', '')}")
                 click.echo(f"   内置: {'是' if theme_info.get('is_builtin') else '否'}")
@@ -385,11 +385,11 @@ def manage_cache(clear, stats):
     
     if clear:
         count = _cache.clear()
-        click.echo(f"🧹 已清除 {count} 个缓存文件")
+        click.echo(f"[INFO] 已清除 {count} 个缓存文件")
     
     if stats or not clear:
         stats_info = _cache.get_stats()
-        click.echo("📊 缓存统计:")
+        click.echo("[INFO] 缓存统计:")
         click.echo(f"   状态: {'启用' if stats_info.get('enabled') else '禁用'}")
         click.echo(f"   目录: {stats_info.get('cache_dir')}")
         click.echo(f"   已使用: {stats_info.get('current_size_mb', 0):.2f} MB")
@@ -416,7 +416,7 @@ def list_languages():
         'ko': '한국어',
     }
     
-    click.echo("🌍 支持的语言:")
+    click.echo("[INFO] 支持的语言:")
     for lang in langs:
         click.echo(f"  - {lang}: {lang_names.get(lang, lang)}")
 
