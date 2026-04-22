@@ -1,0 +1,38 @@
+Metadata-Version: 2.4
+Name: maptoposter
+Version: 0.1.0
+Summary: 城市极简风地图海报生成工具 - 从OpenStreetMap获取数据，生成精美可打印海报
+Author: MapToPoster Team
+Project-URL: Homepage, https://github.com/maptoposter/maptoposter
+Project-URL: Documentation, https://github.com/maptoposter/maptoposter#readme
+Project-URL: Repository, https://github.com/maptoposter/maptoposter
+Project-URL: Issues, https://github.com/maptoposter/maptoposter/issues
+Classifier: Development Status :: 4 - Beta
+Classifier: Intended Audience :: End Users/Desktop
+Classifier: License :: OSI Approved :: MIT License
+Classifier: Programming Language :: Python :: 3
+Classifier: Programming Language :: Python :: 3.8
+Classifier: Programming Language :: Python :: 3.9
+Classifier: Programming Language :: Python :: 3.10
+Classifier: Programming Language :: Python :: 3.11
+Classifier: Topic :: Multimedia :: Graphics
+Classifier: Topic :: Scientific/Engineering :: GIS
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: requests>=2.28.0
+Requires-Dist: Pillow>=9.0.0
+Requires-Dist: geopy>=2.2.0
+Requires-Dist: shapely>=1.8.0
+Requires-Dist: numpy>=1.21.0
+Requires-Dist: click>=8.0.0
+Requires-Dist: python-dotenv>=0.19.0
+Requires-Dist: reportlab>=3.5.0
+Requires-Dist: svgwrite>=1.4.0
+Provides-Extra: dev
+Requires-Dist: pytest>=7.0.0; extra == "dev"
+Requires-Dist: pytest-cov>=4.0.0; extra == "dev"
+Requires-Dist: black>=22.0.0; extra == "dev"
+Requires-Dist: ruff>=0.1.0; extra == "dev"
+
+# maptoposter
+这个一个打印海报项目
