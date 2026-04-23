@@ -1,0 +1,23 @@
+{
+  "key": "4e626da9333f5ba7",
+  "data": {
+    "name": "广州市",
+    "display_name": "广州市, 广东省, 中国",
+    "latitude": 23.1288454,
+    "longitude": 113.2590064,
+    "bounding_box": [
+      22.5607978,
+      23.9356989,
+      112.9523727,
+      114.055299
+    ],
+    "country": "中国",
+    "state": "广东省",
+    "city": "广州市",
+    "osm_type": "relation",
+    "osm_id": 3287346
+  },
+  "cache_type": "geocode",
+  "created_at": 1776915392.4089897,
+  "ttl_seconds": 2592000
+}
