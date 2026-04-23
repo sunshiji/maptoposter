@@ -15,13 +15,16 @@ logger = logging.getLogger(__name__)
 class LabelConfig:
     show_labels: bool = True
     show_city: bool = True
+    show_county: bool = True
     show_district: bool = True
     show_town: bool = True
     show_village: bool = True
     show_suburb: bool = True
-    max_labels: int = 30
+    show_state: bool = True
+    show_region: bool = True
+    max_labels: int = 50
     min_font_size: int = 12
-    max_font_size: int = 48
+    max_font_size: int = 60
     label_outline: bool = True
     label_outline_width: int = 2
     avoid_overlap: bool = True
@@ -195,6 +198,8 @@ class MapRenderer:
             
             if place_type == PlaceType.CITY and not labels_config.show_city:
                 continue
+            if place_type == PlaceType.COUNTY and not labels_config.show_county:
+                continue
             if place_type == PlaceType.DISTRICT and not labels_config.show_district:
                 continue
             if place_type == PlaceType.TOWN and not labels_config.show_town:
@@ -209,6 +214,10 @@ class MapRenderer:
                 continue
             if place_type == PlaceType.NEIGHBOURHOOD and not labels_config.show_suburb:
                 continue
+            if place_type == PlaceType.STATE and not labels_config.show_state:
+                continue
+            if place_type == PlaceType.REGION and not labels_config.show_region:
+                continue
             
             filtered.append(place)
         
@@ -221,8 +230,14 @@ class MapRenderer:
         priority = place.priority
         place_type = place.place_type
         
-        if place_type == PlaceType.CITY:
-            size = 36
+        if place_type == PlaceType.STATE:
+            size = 48
+        elif place_type == PlaceType.REGION:
+            size = 42
+        elif place_type == PlaceType.CITY:
+            size = 40
+        elif place_type == PlaceType.COUNTY:
+            size = 32
         elif place_type == PlaceType.DISTRICT:
             size = 28
         elif place_type in [PlaceType.TOWN, PlaceType.MUNICIPALITY]:
@@ -306,24 +321,24 @@ class MapRenderer:
             )
             
             if labels_config.avoid_overlap and self._check_overlap(label_bbox, occupied_areas):
-                offset_y = 0
-                found = False
-                for offset in [20, 40, 60, 80, -20, -40, -60, -80]:
-                    test_bbox = (
-                        label_bbox[0],
-                        label_bbox[1] + offset,
-                        label_bbox[2],
-                        label_bbox[3] + offset,
-                    )
-                    if not self._check_overlap(test_bbox, occupied_areas):
-                        offset_y = offset
-                        found = True
-                        break
+                offset_x, offset_y = self._find_best_offset(
+                    label_bbox, occupied_areas, canvas_width, canvas_height
+                )
                 
-                if not found:
+                if offset_x is None or offset_y is None:
                     continue
                 
+                x += offset_x
                 y += offset_y
+                label_bbox = (
+                    label_bbox[0] + offset_x,
+                    label_bbox[1] + offset_y,
+                    label_bbox[2] + offset_x,
+                    label_bbox[3] + offset_y,
+                )
+            
+            if not self._is_bbox_visible(label_bbox, canvas_width, canvas_height):
+                continue
             
             occupied_areas.append(label_bbox)
             
@@ -349,6 +364,54 @@ class MapRenderer:
                 fill=hex_to_rgba(text_color),
                 anchor="mm",
             )
+    
+    def _find_best_offset(
+        self,
+        label_bbox: Tuple[float, float, float, float],
+        occupied_areas: List[Tuple[float, float, float, float]],
+        canvas_width: int,
+        canvas_height: int,
+    ) -> Tuple[Optional[float], Optional[float]]:
+        offsets = [
+            (0, 0),
+            (0, 30), (0, -30), (30, 0), (-30, 0),
+            (30, 30), (30, -30), (-30, 30), (-30, -30),
+            (0, 60), (0, -60), (60, 0), (-60, 0),
+            (60, 30), (60, -30), (-60, 30), (-60, -30),
+            (30, 60), (30, -60), (-30, 60), (-30, -60),
+            (0, 90), (0, -90), (90, 0), (-90, 0),
+        ]
+        
+        for offset_x, offset_y in offsets:
+            if offset_x == 0 and offset_y == 0:
+                continue
+                
+            test_bbox = (
+                label_bbox[0] + offset_x,
+                label_bbox[1] + offset_y,
+                label_bbox[2] + offset_x,
+                label_bbox[3] + offset_y,
+            )
+            
+            if not self._check_overlap(test_bbox, occupied_areas):
+                return offset_x, offset_y
+        
+        return None, None
+    
+    def _is_bbox_visible(
+        self,
+        bbox: Tuple[float, float, float, float],
+        canvas_width: int,
+        canvas_height: int,
+    ) -> bool:
+        x1, y1, x2, y2 = bbox
+        margin = 20
+        return (
+            x2 > margin
+            and x1 < canvas_width - margin
+            and y2 > margin
+            and y1 < canvas_height - margin
+        )
     
     def _render_water_bodies(
         self,

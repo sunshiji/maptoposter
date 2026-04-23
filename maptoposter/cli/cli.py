@@ -154,8 +154,10 @@ def cli(ctx, language, config_file):
               default='bottom', help='标题位置')
 @click.option('--no-labels', is_flag=True, help='不显示地名标签')
 @click.option('--no-city-labels', is_flag=True, help='不显示城市标签')
-@click.option('--no-district-labels', is_flag=True, help='不显示区县标签')
-@click.option('--max-labels', type=int, default=30, help='最大标签数量')
+@click.option('--no-county-labels', is_flag=True, help='不显示县/县级市标签')
+@click.option('--no-district-labels', is_flag=True, help='不显示市辖区标签')
+@click.option('--no-town-labels', is_flag=True, help='不显示乡镇标签')
+@click.option('--max-labels', type=int, default=50, help='最大标签数量')
 @click.pass_context
 def generate_poster(
     ctx,
@@ -176,7 +178,9 @@ def generate_poster(
     title_position,
     no_labels,
     no_city_labels,
+    no_county_labels,
     no_district_labels,
+    no_town_labels,
     max_labels,
 ):
     """
@@ -302,7 +306,9 @@ def generate_poster(
     labels_config = LabelConfig(
         show_labels=not no_labels,
         show_city=not no_city_labels,
+        show_county=not no_county_labels,
         show_district=not no_district_labels,
+        show_town=not no_town_labels,
         max_labels=max_labels,
     )
     

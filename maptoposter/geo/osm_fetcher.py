@@ -230,7 +230,9 @@ class OSMFetcher:
     ({bbox_str});
   
   node["place"]({bbox_str});
-  node["place"]({bbox_str})->.place_nodes;
+  
+  relation["boundary"="administrative"]["admin_level"]({bbox_str});
+  relation["boundary"="administrative"]["name"]({bbox_str});
 );
 
 (._;>;);
@@ -588,10 +590,125 @@ out body;
             )
             osm_data.places.append(place)
         
+        for rel_id, relation in relations.items():
+            tags = relation.get("tags", {})
+            
+            if tags.get("boundary") != "administrative":
+                continue
+            
+            name = tags.get("name")
+            if not name:
+                continue
+            
+            admin_level = None
+            admin_str = tags.get("admin_level")
+            if admin_str:
+                try:
+                    admin_level = int(admin_str)
+                except ValueError:
+                    pass
+            
+            place_type = self._admin_level_to_place_type(admin_level, tags)
+            
+            members = relation.get("members", [])
+            center_lat, center_lon = self._calculate_relation_center(members, nodes, ways)
+            
+            if center_lat is None or center_lon is None:
+                continue
+            
+            population = None
+            pop_str = tags.get("population")
+            if pop_str:
+                try:
+                    population = int(pop_str.replace(",", ""))
+                except ValueError:
+                    pass
+            
+            name_en = tags.get("name:en")
+            name_local = tags.get("name:zh") or tags.get("name:ja") or tags.get("name:ko")
+            
+            existing_ids = {p.id for p in osm_data.places}
+            if rel_id in existing_ids:
+                continue
+            
+            place = Place(
+                id=rel_id,
+                name=name,
+                name_en=name_en,
+                name_local=name_local,
+                place_type=place_type,
+                latitude=center_lat,
+                longitude=center_lon,
+                population=population,
+                admin_level=admin_level,
+                tags=tags,
+            )
+            osm_data.places.append(place)
+        
         osm_data.roads.sort(key=lambda r: r.priority)
         osm_data.places.sort(key=lambda p: p.priority, reverse=True)
         
         return osm_data
+    
+    def _admin_level_to_place_type(self, admin_level: Optional[int], tags: Dict[str, str]) -> PlaceType:
+        place_str = tags.get("place")
+        if place_str:
+            try:
+                return PlaceType(place_str)
+            except ValueError:
+                pass
+        
+        if admin_level is None:
+            return PlaceType.LOCALITY
+        
+        if admin_level <= 3:
+            return PlaceType.STATE
+        elif admin_level <= 5:
+            return PlaceType.REGION
+        elif admin_level <= 7:
+            return PlaceType.CITY
+        elif admin_level <= 9:
+            return PlaceType.COUNTY
+        elif admin_level <= 11:
+            return PlaceType.DISTRICT
+        elif admin_level <= 13:
+            return PlaceType.TOWN
+        else:
+            return PlaceType.LOCALITY
+    
+    def _calculate_relation_center(
+        self,
+        members: List[Dict[str, Any]],
+        nodes: Dict[int, Tuple[float, float]],
+        ways: Dict[int, Dict[str, Any]],
+    ) -> Tuple[Optional[float], Optional[float]]:
+        all_lats: List[float] = []
+        all_lons: List[float] = []
+        
+        for member in members:
+            member_type = member.get("type")
+            member_ref = member.get("ref")
+            
+            if member_type == "node" and member_ref in nodes:
+                lat, lon = nodes[member_ref]
+                all_lats.append(lat)
+                all_lons.append(lon)
+            elif member_type == "way" and member_ref in ways:
+                way = ways[member_ref]
+                node_refs = way.get("nodes", [])
+                for node_ref in node_refs:
+                    if node_ref in nodes:
+                        lat, lon = nodes[node_ref]
+                        all_lats.append(lat)
+                        all_lons.append(lon)
+        
+        if not all_lats:
+            return None, None
+        
+        center_lat = sum(all_lats) / len(all_lats)
+        center_lon = sum(all_lons) / len(all_lons)
+        
+        return center_lat, center_lon
     
     def close(self) -> None:
         if self._session:
